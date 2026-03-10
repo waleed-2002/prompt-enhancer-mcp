@@ -285,8 +285,7 @@ async function fetchGitHubFile(repo, filePath, branch, token, keywords = [], loc
     if (!content) return null;
 
     const { snippet, start_line, end_line } = extractRelevantLines(content, keywords);
-    const note = usedRef !== branch ? ` (used ${usedRef} — "${branch}" not found)` : "";
-    return { content, snippet, start_line, end_line, source: `github:${repo}/${usedRef}${note}` };
+    return { content, snippet, start_line, end_line, source: `github:${usedRef}` };
   } catch {
     return null;
   }
@@ -406,15 +405,10 @@ async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch
 
   // ── Step 2: Resolve branch ──
   const localBranch = local_branch || getCurrentBranch();
-  const { branch, source: branchSource } = resolveBranch(branch_name, ticket);
+  const { branch } = resolveBranch(branch_name, ticket);
   result.branch = branch;
-  if (branch) {
-    result.assumptions.push(`Branch resolved to "${branch}" (source: ${branchSource})`);
-  } else {
+  if (!branch) {
     result.clarification_questions.push("Which branch should code context be read from?");
-  }
-  if (localBranch && localBranch !== branch) {
-    result.assumptions.push(`Local branch: "${localBranch}" (GitHub fallback if ticket branch not found)`);
   }
 
   // ── Step 3: Gather code context ──
@@ -430,7 +424,7 @@ async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch
       ticketText + (prompt ? `\nAdditional intent: ${prompt}` : ""),
       repo
     );
-    result.assumptions.push(`LLM extracted ${fileHints.length} file hint(s) and ${keywords.length} keyword(s)`);
+    // (LLM extraction details kept internal — not shown to user)
 
     // Fetch file hints in parallel for speed
     const fileHintResults = await Promise.allSettled(
@@ -472,9 +466,7 @@ async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch
         for (const r of grepResults) {
           if (!result.repo_context.some(x => x.file_path === r.file_path)) result.repo_context.push(r);
         }
-        if (grepResults.length > 0) {
-          result.assumptions.push(`Local keyword search found ${grepResults.length} file(s)`);
-        }
+        // grep results added silently
       }
 
       if (result.repo_context.length < 3 && repo && githubToken) {
@@ -482,18 +474,11 @@ async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch
         for (const r of ghSearchResults) {
           if (!result.repo_context.some(x => x.file_path === r.file_path)) result.repo_context.push(r);
         }
-        if (ghSearchResults.length > 0) {
-          result.assumptions.push(`GitHub code search found ${ghSearchResults.length} file(s) in ${repo}`);
-        }
+        // search results added silently
       }
     }
 
-    if (githubAttempts.length > 0) {
-      const fetched = result.repo_context.filter(r => r.source?.startsWith("github")).map(r => r.file_path);
-      const failed = githubAttempts.filter(a => !fetched.some(f => a.includes(f)));
-      if (fetched.length > 0) result.assumptions.push(`GitHub fetched: ${fetched.join(", ")} from ${repo}`);
-      if (failed.length > 0) result.assumptions.push(`GitHub attempted but not found: ${failed.join(", ")}`);
-    }
+    // Failed fetches are silently skipped — only successful context is shown
   }
 
   // ── Step 4: Build user message for GPT ──
@@ -555,19 +540,26 @@ function formatOutput(result, preview) {
 
   const lines = [];
 
+  // Header: ticket + branch (one clean line)
   if (result.ticket_summary) {
     lines.push(`Ticket: ${result.ticket_summary.id} — ${result.ticket_summary.title}`);
     if (result.ticket_summary.labels.length) lines.push(`Labels: ${result.ticket_summary.labels.join(", ")}`);
   }
   if (result.branch) lines.push(`Branch: ${result.branch}`);
-  if (result.assumptions.length) lines.push(`\nAssumptions:\n${result.assumptions.map(a => `• ${a}`).join("\n")}`);
+
+  // Code context: compact file list
   if (result.repo_context.length) {
-    lines.push(`\nCode context gathered (${result.repo_context.length} file${result.repo_context.length > 1 ? "s" : ""}):`);
-    result.repo_context.forEach(r => lines.push(`  • ${r.file_path}:${r.start_line} — ${r.reason} [${r.source}]`));
+    lines.push(`\nCode context (${result.repo_context.length} file${result.repo_context.length > 1 ? "s" : ""}):`);
+    result.repo_context.forEach(r => {
+      const src = r.source?.replace(/^github:/, "") || r.source;
+      lines.push(`  • ${r.file_path}:${r.start_line}-${r.end_line || ""} [${src}]`);
+    });
   }
+
+  // Only show clarification if we're stuck
   if (result.clarification_questions.length) {
     lines.push(`\nNeeds clarification:\n${result.clarification_questions.map(q => `? ${q}`).join("\n")}`);
-    if (result.clarification_questions.length > 0 && !result.execution_prompt) return lines.join("\n");
+    if (!result.execution_prompt) return lines.join("\n");
   }
 
   lines.push(`\n${"─".repeat(60)}\nEnhanced prompt:\n\n${result.execution_prompt}`);
