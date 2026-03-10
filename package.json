@@ -1,0 +1,26 @@
+{
+  "name": "prompt-enhancer",
+  "version": "1.0.0",
+  "description": "MCP server that turns vague developer prompts into detailed, context-aware prompts using OpenAI",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "dotenv": "^17.3.1",
+    "openai": "latest",
+    "zod": "^4.3.6"
+  },
+  "keywords": [
+    "mcp",
+    "prompt",
+    "openai",
+    "claude",
+    "ai",
+    "developer-tools"
+  ],
+  "license": "MIT"
+}

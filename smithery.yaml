@@ -1,0 +1,42 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      openaiApiKey:
+        type: string
+        description: Your OpenAI API key (get one at platform.openai.com)
+      linearApiKey:
+        type: string
+        description: "Optional: Linear API key for ticket context (get one at linear.app/settings/api)"
+      githubToken:
+        type: string
+        description: "Optional: GitHub personal access token for code context"
+      enhancerModel:
+        type: string
+        description: "Optional: OpenAI model for prompt enhancement (default: gpt-4o-mini)"
+      extractorModel:
+        type: string
+        description: "Optional: OpenAI model for context extraction (default: gpt-4o-mini)"
+      maxTokens:
+        type: number
+        description: "Optional: Max tokens for enhanced prompt output (default: 1500)"
+      searchExtensions:
+        type: string
+        description: "Optional: Comma-separated file extensions to search (default: ts,tsx,js,jsx,py,go,rs,java,rb,php,swift,kt)"
+    required:
+      - openaiApiKey
+  commandFunction: |-
+    (config) => ({
+      command: "node",
+      args: ["index.js"],
+      env: {
+        OPENAI_API_KEY: config.openaiApiKey,
+        ...(config.linearApiKey && { LINEAR_API_KEY: config.linearApiKey }),
+        ...(config.githubToken && { GITHUB_TOKEN: config.githubToken }),
+        ...(config.enhancerModel && { ENHANCER_MODEL: config.enhancerModel }),
+        ...(config.extractorModel && { EXTRACTOR_MODEL: config.extractorModel }),
+        ...(config.maxTokens && { MAX_TOKENS: String(config.maxTokens) }),
+        ...(config.searchExtensions && { SEARCH_EXTENSIONS: config.searchExtensions }),
+      }
+    })
