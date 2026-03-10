@@ -1,0 +1,49 @@
+{
+  "serverInfo": {
+    "name": "prompt-enhancer",
+    "version": "1.0.0"
+  },
+  "tools": [
+    {
+      "name": "enhance",
+      "description": "PRIMARY TOOL. Transforms a short/vague prompt into a detailed, actionable prompt. Supports optional Linear ticket context and real code from GitHub or local git.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "Short or vague user intent to enhance" },
+          "ticket_id": { "type": "string", "description": "Linear ticket ID, e.g. SCL-112" },
+          "include_code_context": { "type": "boolean", "description": "If true, fetch relevant code from local repo or GitHub" },
+          "branch_name": { "type": "string", "description": "Explicit branch to read code from" },
+          "local_branch": { "type": "string", "description": "User's current git branch" },
+          "repo": { "type": "string", "description": "GitHub repo as owner/repo" },
+          "preview": { "type": "boolean", "description": "If true (default), show result and ask for confirmation" }
+        }
+      }
+    },
+    {
+      "name": "enhance_prompt",
+      "description": "Simple prompt-only enhancement. Rewrites a short/vague prompt into a detailed, structured, actionable prompt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "The short or vague prompt to enhance" },
+          "preview": { "type": "boolean", "description": "If true (default), show result and ask for confirmation" }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "enhance_from_ticket",
+      "description": "DEPRECATED: Use enhance instead. Fetches a Linear ticket and generates a basic enhanced prompt.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": { "type": "string", "description": "Linear ticket ID, e.g. SCL-112" },
+          "prompt": { "type": "string", "description": "Optional additional intent" },
+          "preview": { "type": "boolean", "description": "If true (default), show result and ask for confirmation" }
+        },
+        "required": ["ticket_id"]
+      }
+    }
+  ]
+}
