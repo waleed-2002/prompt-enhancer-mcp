@@ -66,27 +66,29 @@ function gitRun(...args) {
 }
 
 // ─── System prompt ───────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an expert software engineer prompt enhancer.
-Your only task: take a short/vague developer prompt and rewrite it into a very detailed, precise, structured, actionable prompt that will be given to a coding LLM (Claude).
-Rules you MUST follow:
-- Return ONLY the enhanced prompt text — nothing else
-- No explanation, no preamble, no markdown, no "Here is the improved prompt:", no fences
-- Make the prompt extremely clear and specific
-- Include relevant project context when available (CLAUDE.md content, recently changed files)
-- Reference exact file names, function names, classes, variables, error messages, edge cases, desired architecture/style, testing approach, performance considerations when they make sense
-- When code snippets are provided, reference specific line numbers and function names from them
-- Keep the enhanced prompt concise — do not pad it. Simple tasks should stay short, complex tasks can be longer.
-- Use chain-of-thought style instructions when the task is complex
-- Prefer step-by-step instructions over vague goals
-- End the prompt with clear success criteria / acceptance tests
-Input format you will receive:
-Project context (CLAUDE.md if exists):
-[CLAUDE.md content or empty]
-Recently modified files or ticket info:
-[context]
-User prompt:
-[short original prompt]
-Output: ONLY the rewritten, detailed prompt`;
+const SYSTEM_PROMPT = `You are an expert software engineer prompt enhancer. Your task: rewrite a short/vague developer prompt into a detailed, actionable prompt for a coding LLM (Claude).
+
+RULES:
+1. Return ONLY the enhanced prompt — no preamble, no "Here is...", no markdown fences, no explanation.
+2. Scale detail to complexity: a one-line bug fix stays short; a multi-file feature gets step-by-step instructions.
+3. When code snippets are provided, reference specific function names, line numbers, and variable names from them.
+4. When a file tree / repo map is provided, use it to suggest WHERE to add new code, which existing patterns to follow, and which files to modify.
+5. Always end with clear acceptance criteria (what "done" looks like).
+
+STRUCTURE (use only the sections that apply):
+- Context: what the task is and why (ticket reference if available)
+- Files to modify: exact paths and what to change in each
+- Implementation steps: numbered, concrete actions
+- Edge cases: things to watch out for
+- Testing: how to verify the change works
+- Acceptance criteria: checklist of what success looks like
+
+IMPORTANT:
+- Do NOT repeat the ticket description verbatim — distill it into actionable instructions.
+- Do NOT invent file paths that weren't provided in context — only reference files from the code context or file tree.
+- If the repo structure is provided, reference it to suggest where new files or functions should live.
+- Prefer "modify X in Y" over "you might want to look at..."
+- Keep it concise. No filler.`;
 
 // ─── Linear ──────────────────────────────────────────────────────────────────
 async function fetchLinearTicket(ticketId, apiKey) {
@@ -151,14 +153,21 @@ async function extractContextWithLLM(ticketText, repoName = "") {
       response_format: { type: "json_object" },
       messages: [{
         role: "system",
-        content: `You are a code assistant analyzing a software ticket. Extract:
-1. "file_paths": source file paths that likely ALREADY EXIST in the repo and are relevant to implementing this ticket.
-   Rules:
-   - INCLUDE any file that is referenced as something to modify, add to, or read as context
-   - INCLUDE files whose existence would help understand how to implement the ticket
-   - EXCLUDE files that are clearly example OUTPUT content of the endpoint/feature
-   - Strip any repo name prefix from paths
-2. "keywords": 4-8 technical terms to search the codebase for (function names, API route paths, variable names, endpoint paths).
+        content: `You are a code assistant. Analyze this ticket/prompt and extract two things:
+
+1. "file_paths": source files that likely EXIST in the repo and need to be read or modified.
+   - INCLUDE files mentioned as targets to change, read, or extend
+   - INCLUDE likely related files (e.g. if ticket mentions "auth endpoint", include routes/auth.ts, middleware/auth.ts, etc.)
+   - EXCLUDE example output files or test fixtures unless the task is about tests
+   - Strip any repo name prefix from paths (e.g. "my-repo/src/app.ts" → "src/app.ts")
+
+2. "keywords": 6-10 search terms to grep the codebase — be aggressive:
+   - Function/method names (e.g. "getVariants", "handleAuth")
+   - API routes (e.g. "/api/variants", "/auth/login")
+   - Class/component names (e.g. "VariantController", "AuthMiddleware")
+   - Database model/table names (e.g. "variants", "users")
+   - Config keys or env vars if mentioned
+   - Error messages or status codes if relevant
 ${repoHint}
 Return ONLY valid JSON: { "file_paths": [...], "keywords": [...] }`
       }, {
@@ -324,6 +333,54 @@ async function searchGitHubCode(keywords, repo, token) {
   return results;
 }
 
+// ─── GitHub repo tree (for scan_full_repo) ───────────────────────────────────
+async function fetchRepoTree(repo, branch, token) {
+  if (!token || !repo) return null;
+  const [owner, repoName] = repo.split("/");
+  const ref = branch || "main";
+  try {
+    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+    const res = await fetch(url, {
+      headers: { Authorization: `token ${token}`, Accept: "application/vnd.github.v3+json" },
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const files = (json.tree || [])
+      .filter(t => t.type === "blob")
+      .map(t => t.path)
+      .filter(p => {
+        const excluded = CONFIG.excludeDirs.some(d => p.startsWith(d + "/") || p.includes("/" + d + "/"));
+        return !excluded;
+      });
+    return files;
+  } catch {
+    return null;
+  }
+}
+
+function formatFileTree(files) {
+  if (!files || !files.length) return "";
+  // Group by top-level directory for a clean tree view
+  const tree = {};
+  for (const f of files) {
+    const parts = f.split("/");
+    const dir = parts.length > 1 ? parts[0] : ".";
+    if (!tree[dir]) tree[dir] = [];
+    tree[dir].push(parts.slice(1).join("/") || f);
+  }
+  const lines = [];
+  for (const [dir, items] of Object.entries(tree).sort()) {
+    if (dir === ".") {
+      items.forEach(i => lines.push(i));
+    } else {
+      lines.push(`${dir}/`);
+      items.slice(0, 50).forEach(i => lines.push(`  ${i}`));
+      if (items.length > 50) lines.push(`  ... and ${items.length - 50} more files`);
+    }
+  }
+  return lines.join("\n");
+}
+
 // ─── Local grep (safe — uses execFileSync, no shell) ─────────────────────────
 function grepLocalRepo(keywords) {
   const results = [];
@@ -365,7 +422,7 @@ function grepLocalRepo(keywords) {
 }
 
 // ─── Core routing & enhancement ──────────────────────────────────────────────
-async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch_name, local_branch, repo }) {
+async function routeAndEnhance({ ticket_id, prompt, include_code_context, scan_full_repo, branch_name, local_branch, repo }) {
   const client = getOpenAI();
   if (!client) return { error: "OPENAI_API_KEY is not set." };
 
@@ -481,6 +538,16 @@ async function routeAndEnhance({ ticket_id, prompt, include_code_context, branch
     // Failed fetches are silently skipped — only successful context is shown
   }
 
+  // ── Step 3b: Fetch full repo tree if requested ──
+  let repoTree = "";
+  if (scan_full_repo && repo && process.env.GITHUB_TOKEN) {
+    const treeFiles = await fetchRepoTree(repo, branch || localBranch || "main", process.env.GITHUB_TOKEN);
+    if (treeFiles) {
+      repoTree = formatFileTree(treeFiles);
+      result.repo_tree_count = treeFiles.length;
+    }
+  }
+
   // ── Step 4: Build user message for GPT ──
   let claudeMdContent = "";
   const claudeMdPath = safePath("CLAUDE.md");
@@ -510,7 +577,7 @@ ${claudeMdContent}
 
 Recently modified files:
 ${recentFiles || "none"}
-
+${repoTree ? `\nFull repository file tree:\n${repoTree}` : ""}
 ${ticketSection}
 
 ${codeSection ? `Relevant code:\n${codeSection}` : ""}
@@ -546,6 +613,9 @@ function formatOutput(result, preview) {
     if (result.ticket_summary.labels.length) lines.push(`Labels: ${result.ticket_summary.labels.join(", ")}`);
   }
   if (result.branch) lines.push(`Branch: ${result.branch}`);
+
+  // Repo tree info
+  if (result.repo_tree_count) lines.push(`Repo scanned: ${result.repo_tree_count} files`);
 
   // Code context: compact file list
   if (result.repo_context.length) {
@@ -617,21 +687,23 @@ When include_code_context is true:
     - git rev-parse --abbrev-ref HEAD  → pass result as local_branch
     - git remote get-url origin        → parse owner/repo from the GitHub URL, pass as repo
   STEP 2 — Tool fetches files from GitHub: ticket branch → local_branch → staging → main
+When scan_full_repo is true: fetches the entire repo file tree from GitHub so the enhanced prompt can reference the full project structure. Use this when the user says "look at the whole codebase", "scan full repo", or "see all files".
 When preview is true (default): show the full result and ask "Proceed with this enhanced prompt? (yes / edit / cancel)" before doing anything.`,
     {
       ticket_id: z.string().optional().describe("Linear ticket ID, e.g. SCL-112"),
       prompt: z.string().optional().describe("Vague or short user intent to enhance"),
       include_code_context: z.boolean().optional().describe("If true, gather relevant code from local repo or GitHub"),
+      scan_full_repo: z.boolean().optional().describe("If true, fetch the full repo file tree from GitHub and include it as context — use when the user wants the LLM to understand the whole codebase structure"),
       branch_name: z.string().optional().describe("Explicit branch to read code from (overrides auto-detection)"),
       local_branch: z.string().optional().describe("User's current git branch (run: git rev-parse --abbrev-ref HEAD in their project dir)"),
       repo: z.string().optional().describe("GitHub repo as owner/repo (run: git remote get-url origin in their project dir, then parse)"),
       preview: z.boolean().optional().describe("If true (default), show the result and ask for confirmation."),
     },
-    async ({ ticket_id, prompt, include_code_context = false, branch_name, local_branch, repo, preview = true }) => {
+    async ({ ticket_id, prompt, include_code_context = false, scan_full_repo = false, branch_name, local_branch, repo, preview = true }) => {
       if (!ticket_id && !prompt) {
         return { content: [{ type: "text", text: "Error: provide at least one of ticket_id or prompt." }] };
       }
-      const result = await routeAndEnhance({ ticket_id, prompt, include_code_context, branch_name, local_branch, repo });
+      const result = await routeAndEnhance({ ticket_id, prompt, include_code_context, scan_full_repo, branch_name, local_branch, repo });
       const text = formatOutput(result, preview);
       return { content: [{ type: "text", text }] };
     }
@@ -653,6 +725,7 @@ const SERVER_CARD = {
           prompt: { type: "string", description: "Short or vague user intent to enhance" },
           ticket_id: { type: "string", description: "Linear ticket ID, e.g. SCL-112" },
           include_code_context: { type: "boolean", description: "If true, fetch relevant code from local repo or GitHub" },
+          scan_full_repo: { type: "boolean", description: "If true, fetch full repo file tree for whole-codebase awareness" },
           branch_name: { type: "string", description: "Explicit branch to read code from" },
           local_branch: { type: "string", description: "User's current git branch" },
           repo: { type: "string", description: "GitHub repo as owner/repo" },

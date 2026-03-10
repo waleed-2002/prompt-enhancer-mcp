@@ -27,6 +27,7 @@ It can also:
 | `prompt` | string | no* | Short or vague user intent to enhance |
 | `ticket_id` | string | no* | Linear ticket ID, e.g. `SCL-112` |
 | `include_code_context` | boolean | no | If `true`, fetch relevant code from local repo or GitHub |
+| `scan_full_repo` | boolean | no | If `true`, fetch the full repo file tree so the enhanced prompt understands the entire project structure |
 | `branch_name` | string | no | Explicit branch to read code from (overrides auto-detection) |
 | `local_branch` | string | no | User's current git branch (pass output of `git rev-parse --abbrev-ref HEAD`) |
 | `repo` | string | no | GitHub repo as `owner/repo` (parse from `git remote get-url origin`) |
@@ -167,6 +168,13 @@ Claude will auto-detect your branch and repo before calling the tool.
 enhance: "focus only on the mobile layout", ticket_id: "SCL-112"
 ```
 
+### Enhance with full repo scan (whole codebase awareness)
+
+```
+enhance with ticket_id "SCL-112", include_code_context true, scan_full_repo true
+```
+This fetches the entire repo file tree from GitHub so the enhanced prompt can reference the full project structure — useful for large refactors or when the ticket doesn't mention specific files.
+
 ---
 
 ## Deployment on Render
@@ -190,6 +198,11 @@ When `include_code_context` is `true`:
 2. Files are fetched in priority order: **ticket branch → local branch → staging → main**
 3. If fewer than 3 files found, falls back to **local grep** (if inside the target repo) then **GitHub code search**
 4. Relevant lines are extracted using keyword matching (not always lines 1–60)
+
+When `scan_full_repo` is also `true`:
+
+5. Fetches the full GitHub repo tree (file list) and includes it in the GPT context
+6. The enhanced prompt can then reference the whole project structure, suggest where to add new files, and follow existing patterns
 
 ---
 

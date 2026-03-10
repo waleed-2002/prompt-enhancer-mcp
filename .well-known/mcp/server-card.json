@@ -13,6 +13,7 @@
           "prompt": { "type": "string", "description": "Short or vague user intent to enhance" },
           "ticket_id": { "type": "string", "description": "Linear ticket ID, e.g. SCL-112" },
           "include_code_context": { "type": "boolean", "description": "If true, fetch relevant code from local repo or GitHub" },
+          "scan_full_repo": { "type": "boolean", "description": "If true, fetch full repo file tree for whole-codebase awareness" },
           "branch_name": { "type": "string", "description": "Explicit branch to read code from" },
           "local_branch": { "type": "string", "description": "User's current git branch" },
           "repo": { "type": "string", "description": "GitHub repo as owner/repo" },
