@@ -51,19 +51,46 @@ Use `enhance` instead. This tool only supports ticket lookup with no code contex
 
 ---
 
-## Installation
+## Installation & Configuration
 
-### Via Smithery
+### Option 1 — Via Smithery (easiest)
 
 Find this server on [Smithery](https://smithery.ai) and install it in one click. Only `OPENAI_API_KEY` is required — `LINEAR_API_KEY` and `GITHUB_TOKEN` are optional.
 
-### Via Claude Code (remote — Render)
+---
 
+### Option 2 — Remote via Claude Code (recommended)
+
+Pass your API keys directly as query parameters in the URL. This works globally across all your projects.
+
+**With OpenAI only (basic prompt enhancement):**
 ```bash
-claude mcp add prompt-enhancer --transport http https://your-render-app.onrender.com/mcp
+claude mcp add --transport http -s user "prompt-enhancer" \
+  "https://prompt-enhancer-mcp.onrender.com/mcp?openaiApiKey=YOUR_OPENAI_KEY"
 ```
 
-### Via Claude Code (local)
+**With OpenAI + Linear (ticket context):**
+```bash
+claude mcp add --transport http -s user "prompt-enhancer" \
+  "https://prompt-enhancer-mcp.onrender.com/mcp?openaiApiKey=YOUR_OPENAI_KEY&linearApiKey=YOUR_LINEAR_KEY"
+```
+
+**With all three keys (full features — recommended):**
+```bash
+claude mcp add --transport http -s user "prompt-enhancer" \
+  "https://prompt-enhancer-mcp.onrender.com/mcp?openaiApiKey=YOUR_OPENAI_KEY&linearApiKey=YOUR_LINEAR_KEY&githubToken=YOUR_GITHUB_TOKEN"
+```
+
+> The `-s user` flag makes it available in **all your projects**, not just the current one.
+
+To verify it's configured:
+```bash
+claude mcp list
+```
+
+---
+
+### Option 3 — Local (self-hosted)
 
 ```bash
 git clone https://github.com/waleed-2002/prompt-enhancer-mcp.git
@@ -73,10 +100,10 @@ cp .env.example .env   # fill in your keys
 node index.js
 ```
 
-Then in a separate terminal:
-
+Then add to Claude Code:
 ```bash
-claude mcp add prompt-enhancer --transport http http://localhost:3000/mcp
+claude mcp add --transport http -s user "prompt-enhancer" \
+  "http://localhost:3000/mcp?openaiApiKey=YOUR_OPENAI_KEY&linearApiKey=YOUR_LINEAR_KEY&githubToken=YOUR_GITHUB_TOKEN"
 ```
 
 ---
